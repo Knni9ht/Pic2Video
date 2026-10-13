@@ -3,10 +3,15 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $projectRoot
 $previousCGO = $env:CGO_ENABLED
 try {
-    & npm.cmd --prefix web ci --no-audit --no-fund
-    if ($LASTEXITCODE -ne 0) { throw '前端依赖安装失败。' }
-    & npm.cmd --prefix web run build
-    if ($LASTEXITCODE -ne 0) { throw '前端构建失败。' }
+    Push-Location (Join-Path $projectRoot 'web')
+    try {
+        & npm.cmd ci --no-audit --no-fund
+        if ($LASTEXITCODE -ne 0) { throw '前端依赖安装失败。' }
+        & npm.cmd run build
+        if ($LASTEXITCODE -ne 0) { throw '前端构建失败。' }
+    } finally {
+        Pop-Location
+    }
     $env:CGO_ENABLED = '0'
     & go test ./...
     if ($LASTEXITCODE -ne 0) { throw 'Go 测试失败。' }

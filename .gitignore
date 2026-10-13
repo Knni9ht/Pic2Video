@@ -17,6 +17,7 @@
 /web/node_modules/
 *.exe
 *.test
+*.tsbuildinfo
 coverage.out
 
 # Editor and OS files

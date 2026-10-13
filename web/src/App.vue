@@ -278,7 +278,7 @@ onBeforeUnmount(() => { if (pollTimer) clearInterval(pollTimer); if (previewURL.
       <div class="topbar-inner">
         <a class="brand" href="/" aria-label="Pic2Video 首页"><span class="brand-icon"><Icon name="play" :size="19" /></span><span>Pic2Video<span class="brand-dot">.</span></span></a>
         <nav class="main-nav" aria-label="工作台导航"><button :class="{ active: tab === 'studio' }" @click="tab = 'studio'">视频工作台</button><button :class="{ active: tab === 'history' }" @click="tab = 'history'">创作记录 <span v-if="total">{{ total }}</span></button></nav>
-        <div class="topbar-actions"><span class="mode-pill"><i></i>{{ provider === 'mock' ? '演示模式' : 'Seedance 已连接' }}</span><button class="icon-button logout" title="退出登录" aria-label="退出登录" @click="logout"><Icon name="logout" :size="18" /></button></div>
+        <div class="topbar-actions"><span class="mode-pill"><i></i>{{ provider === 'mock' ? '演示模式' : 'Seedance 模式' }}</span><button class="icon-button logout" title="退出登录" aria-label="退出登录" @click="logout"><Icon name="logout" :size="18" /></button></div>
       </div>
     </header>
     <main class="main-container">
