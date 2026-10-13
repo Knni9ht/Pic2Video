@@ -1,0 +1,26 @@
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Runtime data and local verification
+/data/
+/.cache/
+/test-results/
+/playwright-report/
+*.log
+
+# Build output and dependencies
+/bin/
+/dist/
+/web/dist/
+/web/node_modules/
+*.exe
+*.test
+coverage.out
+
+# Editor and OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
