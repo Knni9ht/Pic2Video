@@ -254,10 +254,22 @@ func (a *App) createJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	duration, err := strconv.Atoi(defaultString(r.FormValue("duration"), "5"))
-	ratio := defaultString(r.FormValue("ratio"), "9:16")
+	defaultRatio := "9:16"
+	if a.Config.Provider == "seedance" {
+		defaultRatio = "adaptive"
+	}
+	ratio := defaultString(r.FormValue("ratio"), defaultRatio)
 	resolution := defaultString(r.FormValue("resolution"), "720p")
-	if err != nil || (duration != 5 && duration != 10) || (ratio != "9:16" && ratio != "16:9" && ratio != "1:1") || resolution != "720p" {
-		writeError(w, 400, "invalid_parameters", "仅支持 5/10 秒、720p 和 9:16、16:9、1:1 比例")
+	if err != nil || (duration != 5 && duration != 10) || resolution != "720p" {
+		writeError(w, 400, "invalid_parameters", "仅支持 5/10 秒和 720p 分辨率")
+		return
+	}
+	if a.Config.Provider == "seedance" && ratio != "adaptive" {
+		writeError(w, 400, "invalid_parameters", "当前商品首帧流程使用跟随原图（adaptive），请移除固定比例或改用 adaptive")
+		return
+	}
+	if a.Config.Provider == "mock" && ratio != "9:16" && ratio != "16:9" && ratio != "1:1" {
+		writeError(w, 400, "invalid_parameters", "演示模式仅支持 9:16、16:9、1:1 比例")
 		return
 	}
 	if len(r.MultipartForm.File["image"]) != 1 {

@@ -49,8 +49,10 @@ const statusText = (job: Job) => labels[job.status] || '状态更新中'
 const selectedStep = computed(() => selected.value ? ({ queued: 0, submitting: 0, running: 1, downloading: 2, succeeded: 3, failed: -1, unknown: -1 }[selected.value.status]) : -1)
 const steps = ['任务排队', '生成视频', '保存视频', '制作完成']
 const dateText = (value: string) => new Intl.DateTimeFormat('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
+const ratioText = (value: string) => value === 'adaptive' ? '跟随原图' : value
 
 watch([file, description, duration, ratio], () => { requestKey.value = newRequestKey(); alreadySubmitted.value = false; notice.value = '' }, { flush: 'sync' })
+watch(provider, (value) => { ratio.value = value === 'seedance' ? 'adaptive' : '9:16' }, { flush: 'sync' })
 watch(file, (value) => {
   if (previewURL.value) URL.revokeObjectURL(previewURL.value)
   previewURL.value = value ? URL.createObjectURL(value) : ''
@@ -203,11 +205,13 @@ async function prepareRetry(job: Job) {
     file.value = new File([blob], `商品图片.${extension}`, { type: blob.type })
     description.value = job.description
     duration.value = job.duration
-    ratio.value = job.ratio
+    ratio.value = provider.value === 'seedance' ? 'adaptive' : (job.ratio === 'adaptive' ? '9:16' : job.ratio)
     requestKey.value = newRequestKey()
     alreadySubmitted.value = false
     tab.value = 'studio'
-    notice.value = '已填入原任务内容，确认后点击「开始生成」创建新任务。'
+    notice.value = provider.value === 'seedance'
+      ? '已填入原任务素材，新视频画幅将跟随原图。确认后点击「开始生成」创建新任务。'
+      : '已填入原任务内容，确认后点击「开始生成」创建新任务。'
     await nextTick()
     document.getElementById('create-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   } catch (error) { formError.value = message(error) }
@@ -283,7 +287,7 @@ onBeforeUnmount(() => { if (pollTimer) clearInterval(pollTimer); if (previewURL.
     </header>
     <main class="main-container">
       <div class="page-heading"><div><span class="eyebrow">{{ tab === 'studio' ? 'PRODUCT VIDEO STUDIO' : 'YOUR CREATIVE LIBRARY' }}</span><h1>{{ tab === 'studio' ? '让商品，动起来。' : '每一份灵感，都在这里。' }}</h1><p>{{ tab === 'studio' ? '上传一张商品图片，把你的产品故事变成短片。' : '团队共享的创作记录，随时回看、下载和整理。' }}</p></div><div class="heading-mark" aria-hidden="true"><Icon :name="tab === 'studio' ? 'spark' : 'film'" :size="35" /></div></div>
-      <div v-if="provider === 'mock'" class="mode-banner"><span class="banner-icon"><Icon name="info" :size="18" /></span><p><strong>你正在体验演示模式</strong><span>返回固定 5 秒、360 × 640 样片；图片、时长和比例仅在真实生成模式生效。</span></p><span class="demo-label">MOCK</span></div>
+      <div v-if="provider === 'mock'" class="mode-banner"><span class="banner-icon"><Icon name="info" :size="18" /></span><p><strong>你正在体验演示模式</strong><span>返回固定 5 秒、360 × 640 样片，不使用上传图片及所选参数。</span></p><span class="demo-label">MOCK</span></div>
       <p v-if="pollWarning" class="connection-warning" role="status"><Icon name="info" :size="16" />{{ pollWarning }} 正在自动重试。</p>
 
       <div v-show="tab === 'studio'" class="studio-grid">
@@ -300,7 +304,8 @@ onBeforeUnmount(() => { if (pollTimer) clearInterval(pollTimer); if (previewURL.
               <div v-if="file" class="file-info"><span><Icon name="check" :size="14" />{{ file.name }}</span><button type="button" class="text-button" aria-label="移除图片" @click="file = null"><Icon name="close" :size="14" /></button></div>
               <div class="field-heading description-heading"><label for="description">商品描述 <span class="required">*</span></label><span>{{ description.length }} / 2000</span></div>
               <textarea id="description" v-model="description" rows="4" maxlength="2000" required placeholder="这是什么商品？描述它的外观、核心卖点，以及你想呈现的画面。&#10;例如：一款磨砂白色保温杯，杯身简洁，适合日常通勤。用缓慢环绕镜头展示细节。"></textarea>
-              <div class="settings-row"><div><label for="duration">视频时长</label><div class="select-wrap"><select id="duration" v-model.number="duration"><option :value="5">5 秒</option><option :value="10">10 秒</option></select><Icon name="chevron" :size="14" /></div></div><div><label for="ratio">画面比例</label><div class="select-wrap"><select id="ratio" v-model="ratio"><option value="9:16">9:16 · 竖屏</option><option value="16:9">16:9 · 横屏</option><option value="1:1">1:1 · 方形</option></select><Icon name="chevron" :size="14" /></div></div><div><label for="resolution">分辨率</label><div class="resolution" id="resolution">720p <span>HD</span></div></div></div>
+              <div class="settings-row"><div><label for="duration">视频时长</label><div class="select-wrap"><select id="duration" v-model.number="duration"><option :value="5">5 秒</option><option :value="10">10 秒</option></select><Icon name="chevron" :size="14" /></div></div><div><label for="ratio">画面比例</label><div v-if="provider === 'seedance'" class="resolution" id="ratio">跟随原图</div><div v-else class="select-wrap"><select id="ratio" v-model="ratio"><option value="9:16">9:16 · 竖屏</option><option value="16:9">16:9 · 横屏</option><option value="1:1">1:1 · 方形</option></select><Icon name="chevron" :size="14" /></div></div><div><label for="resolution">分辨率</label><div class="resolution" id="resolution">720p <span>HD</span></div></div></div>
+              <p v-if="provider === 'seedance'" class="form-footnote">视频画幅与商品图片一致，图片不会裁剪或加边；生成静音 MP4。</p>
               <p v-if="formError" class="error-message" role="alert"><Icon name="info" :size="16" />{{ formError }}</p>
               <p v-if="notice" class="success-message" role="status"><Icon name="check" :size="16" />{{ notice }}</p>
               <button type="submit" class="button primary generate-button" :disabled="!canSubmit"><span v-if="submitting" class="spinner"></span><Icon v-else :name="alreadySubmitted ? 'check' : 'spark'" :size="18" />{{ submitting ? '正在提交任务…' : alreadySubmitted ? '已提交任务' : '开始生成' }}<Icon v-if="!submitting && !alreadySubmitted" name="arrow" :size="18" /></button>
@@ -316,7 +321,7 @@ onBeforeUnmount(() => { if (pollTimer) clearInterval(pollTimer); if (previewURL.
             <template v-else><div class="empty-frame"><span class="frame-corner tl"></span><span class="frame-corner tr"></span><span class="frame-corner bl"></span><span class="frame-corner br"></span><div class="empty-play"><Icon name="play" :size="31" /></div><span class="frame-caption">WAITING FOR YOUR STORY</span></div><div class="empty-preview-copy"><h3>下一段故事，由你开始</h3><p>上传图片并提交，视频将在这里呈现</p></div><div class="stage-grid"></div></template>
           </div>
           <div v-if="selected" class="preview-details">
-            <div class="preview-meta"><span>{{ selected.duration }} 秒 <b>·</b> {{ selected.ratio }} <b>·</b> {{ selected.resolution }}</span><span>{{ dateText(selected.created_at) }}</span></div>
+            <div class="preview-meta"><span>{{ selected.duration }} 秒 <b>·</b> {{ ratioText(selected.ratio) }} <b>·</b> {{ selected.resolution }}</span><span>{{ dateText(selected.created_at) }}</span></div>
             <div v-if="active(selected) || selected.status === 'succeeded'" class="task-steps" aria-label="任务状态"><div v-for="(step, index) in steps" :key="step" :class="{ done: selectedStep > index, current: selectedStep === index }"><span><Icon v-if="selectedStep > index" name="check" :size="12" /><template v-else>{{ index + 1 }}</template></span><small>{{ step }}</small></div></div>
             <div v-if="selected.status === 'succeeded'" class="preview-actions"><a class="button secondary" :href="`${jobVideo(selected)}?download=1`" download><Icon name="download" :size="17" />下载视频</a><button class="icon-button danger" aria-label="删除当前任务" title="删除任务" @click="askDelete(selected)"><Icon name="trash" :size="18" /></button></div>
             <button v-if="selected.status === 'failed'" class="button secondary retry-button" :disabled="retryBusy" @click="prepareRetry(selected)"><Icon name="refresh" :size="16" />{{ retryBusy ? '正在读取…' : '重新使用这些素材' }}</button>
@@ -331,7 +336,7 @@ onBeforeUnmount(() => { if (pollTimer) clearInterval(pollTimer); if (previewURL.
         <div v-if="historyError" class="error-message history-error" role="alert"><Icon name="info" :size="17" />{{ historyError }}</div>
         <div v-if="historyLoading && !jobs.length" class="history-empty" role="status"><span class="spinner"></span><p>正在读取创作记录…</p></div>
         <div v-else-if="!jobs.length" class="history-empty"><span class="empty-library"><Icon name="film" :size="29" /></span><h3>第一支短片，即将诞生</h3><p>提交商品素材后，你和团队的创作会出现在这里。</p><button v-if="tab === 'history'" class="text-button" @click="tab = 'studio'">开始第一次创作 <Icon name="arrow" :size="16" /></button></div>
-        <div v-else class="history-grid"><article v-for="job in jobs" :key="job.id" class="job-card"><button class="job-thumbnail" :aria-label="`查看任务：${job.description}`" @click="openJob(job)"><img :src="jobImage(job)" alt="商品图片" loading="lazy"><span class="status-badge" :class="job.status"><i></i>{{ statusText(job) }}</span><span v-if="job.status === 'succeeded'" class="thumbnail-play"><Icon name="play" :size="21" /></span><span v-if="job.provider === 'mock'" class="thumbnail-demo">演示</span></button><div class="job-info"><button class="job-title" @click="openJob(job)">{{ job.description }}</button><div class="job-meta"><span>{{ job.duration }} 秒 · {{ job.ratio }} · {{ job.resolution }}</span><span>{{ dateText(job.created_at) }}</span></div><div class="job-actions"><button class="text-button" @click="openJob(job)">{{ job.status === 'succeeded' ? '查看视频' : '查看任务' }}<Icon name="arrow" :size="14" /></button><div><a v-if="job.status === 'succeeded'" class="icon-button" :href="`${jobVideo(job)}?download=1`" aria-label="下载视频" title="下载视频" download><Icon name="download" :size="16" /></a><button v-if="!active(job)" class="icon-button danger" aria-label="删除任务" title="删除任务" @click="askDelete(job)"><Icon name="trash" :size="16" /></button></div></div></div></article></div>
+        <div v-else class="history-grid"><article v-for="job in jobs" :key="job.id" class="job-card"><button class="job-thumbnail" :aria-label="`查看任务：${job.description}`" @click="openJob(job)"><img :src="jobImage(job)" alt="商品图片" loading="lazy"><span class="status-badge" :class="job.status"><i></i>{{ statusText(job) }}</span><span v-if="job.status === 'succeeded'" class="thumbnail-play"><Icon name="play" :size="21" /></span><span v-if="job.provider === 'mock'" class="thumbnail-demo">演示</span></button><div class="job-info"><button class="job-title" @click="openJob(job)">{{ job.description }}</button><div class="job-meta"><span>{{ job.duration }} 秒 · {{ ratioText(job.ratio) }} · {{ job.resolution }}</span><span>{{ dateText(job.created_at) }}</span></div><div class="job-actions"><button class="text-button" @click="openJob(job)">{{ job.status === 'succeeded' ? '查看视频' : '查看任务' }}<Icon name="arrow" :size="14" /></button><div><a v-if="job.status === 'succeeded'" class="icon-button" :href="`${jobVideo(job)}?download=1`" aria-label="下载视频" title="下载视频" download><Icon name="download" :size="16" /></a><button v-if="!active(job)" class="icon-button danger" aria-label="删除任务" title="删除任务" @click="askDelete(job)"><Icon name="trash" :size="16" /></button></div></div></div></article></div>
         <div v-if="pageCount > 1" class="pagination"><span>共 {{ total }} 个任务</span><div><button class="button quiet" :disabled="page === 1 || historyLoading" @click="page--">上一页</button><span>{{ page }} / {{ pageCount }}</span><button class="button quiet" :disabled="page === pageCount || historyLoading" @click="page++">下一页</button></div></div>
       </section>
       <footer class="page-footer"><span>Pic2Video<span class="brand-dot">.</span> <span class="footer-divider">/</span> 让每一件商品，都有好故事</span><span>团队工作空间 · {{ provider === 'mock' ? '演示模式' : 'Powered by Seedance' }}</span></footer>

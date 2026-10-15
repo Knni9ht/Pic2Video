@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"image/png"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -59,13 +60,17 @@ func pngImage(t *testing.T, width, height int) []byte {
 	return b.Bytes()
 }
 func submit(t *testing.T, h http.Handler, cookie *http.Cookie, key, description string, data []byte) *httptest.ResponseRecorder {
+	return submitFields(t, h, cookie, key, description, data, map[string]string{"duration": "5", "ratio": "9:16", "resolution": "720p"})
+}
+
+func submitFields(t *testing.T, h http.Handler, cookie *http.Cookie, key, description string, data []byte, fields map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	var body bytes.Buffer
 	m := multipart.NewWriter(&body)
 	_ = m.WriteField("description", description)
-	_ = m.WriteField("duration", "5")
-	_ = m.WriteField("ratio", "9:16")
-	_ = m.WriteField("resolution", "720p")
+	for name, value := range fields {
+		_ = m.WriteField(name, value)
+	}
 	f, err := m.CreateFormFile("image", "product.png")
 	if err != nil {
 		t.Fatal(err)
@@ -81,6 +86,89 @@ func submit(t *testing.T, h http.Handler, cookie *http.Cookie, key, description 
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	return w
+}
+
+func TestGenerationParametersByProvider(t *testing.T) {
+	for _, test := range []struct {
+		name, provider string
+		fields         map[string]string
+		status         int
+		ratio          string
+	}{
+		{"seedance defaults", "seedance", nil, 202, "adaptive"},
+		{"seedance 5 seconds", "seedance", map[string]string{"ratio": "adaptive", "duration": "5"}, 202, "adaptive"},
+		{"seedance 10 seconds", "seedance", map[string]string{"ratio": "adaptive", "duration": "10"}, 202, "adaptive"},
+		{"seedance vertical rejected", "seedance", map[string]string{"ratio": "9:16"}, 400, ""},
+		{"seedance horizontal rejected", "seedance", map[string]string{"ratio": "16:9"}, 400, ""},
+		{"seedance square rejected", "seedance", map[string]string{"ratio": "1:1"}, 400, ""},
+		{"seedance unsupported duration", "seedance", map[string]string{"duration": "8"}, 400, ""},
+		{"seedance unsupported resolution", "seedance", map[string]string{"resolution": "1080p"}, 400, ""},
+		{"mock defaults", "mock", nil, 202, "9:16"},
+		{"mock horizontal", "mock", map[string]string{"ratio": "16:9"}, 202, "16:9"},
+		{"mock square", "mock", map[string]string{"ratio": "1:1"}, 202, "1:1"},
+		{"mock adaptive rejected", "mock", map[string]string{"ratio": "adaptive"}, 400, ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			a, h := newTestApp(t)
+			a.Config.Provider = test.provider
+			w := submitFields(t, h, loggedIn(t, h), "parameters-123", "商品", pngImage(t, 300, 300), test.fields)
+			if w.Code != test.status {
+				t.Fatalf("unexpected status: %d %s", w.Code, w.Body.String())
+			}
+			if w.Code == 202 {
+				j := decodeJob(t, w)
+				if j.Ratio != test.ratio || j.Resolution != "720p" || j.Provider != test.provider {
+					t.Fatalf("wrong defaults: %+v", j)
+				}
+			} else {
+				if !strings.Contains(w.Body.String(), "invalid_parameters") {
+					t.Fatal("unstable parameter error code")
+				}
+				_, total, err := a.Store.List(1, 12)
+				if err != nil || total != 0 {
+					t.Fatal("rejected parameters created a task")
+				}
+			}
+		})
+	}
+}
+
+func TestSeedanceIdempotency(t *testing.T) {
+	a, h := newTestApp(t)
+	a.Config.Provider = "seedance"
+	p := &controlledProvider{}
+	a.Provider = p
+	cookie := loggedIn(t, h)
+	data := pngImage(t, 300, 300)
+	j := decodeJob(t, submitFields(t, h, cookie, "seedance-repeat-123", "商品", data, nil))
+	repeated := decodeJob(t, submitFields(t, h, cookie, "seedance-repeat-123", "商品", data, map[string]string{"ratio": "adaptive"}))
+	if repeated.ID != j.ID {
+		t.Fatal("default and explicit adaptive created different tasks")
+	}
+	startWorker(t, a)
+	waitStatus(t, a, j.ID, "succeeded")
+	decodeJob(t, submitFields(t, h, cookie, "seedance-repeat-123", "商品", data, nil))
+	if p.Submits.Load() != 1 {
+		t.Fatal("duplicate paid submission")
+	}
+}
+
+func TestProviderDiagnosticLogging(t *testing.T) {
+	a, _ := newTestApp(t)
+	var output bytes.Buffer
+	a.log = slog.New(slog.NewJSONHandler(&output, nil))
+	j := &store.Job{ID: "local-task", RemoteID: "remote-task", Provider: "seedance"}
+	a.logProviderError(j, "check", &provider.ServiceError{Message: "secret credential and server path", Details: provider.Diagnostic{HTTPStatus: 403, UpstreamCode: "AccessDenied"}})
+	var event map[string]any
+	if err := json.Unmarshal(output.Bytes(), &event); err != nil {
+		t.Fatal(err)
+	}
+	if event["stage"] != "check" || event["job"] != j.ID || event["remote_id"] != j.RemoteID || event["http_status"] != float64(403) || event["upstream_code"] != "AccessDenied" {
+		t.Fatalf("missing diagnostic: %s", output.String())
+	}
+	if strings.Contains(output.String(), "secret") {
+		t.Fatal("raw error leaked to logs")
+	}
 }
 func decodeJob(t *testing.T, w *httptest.ResponseRecorder) store.Job {
 	t.Helper()

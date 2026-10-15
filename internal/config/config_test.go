@@ -26,6 +26,25 @@ func TestConfigValidation(t *testing.T) {
 	}
 }
 
+func TestMiniModelDefaultAndOverride(t *testing.T) {
+	t.Setenv("APP_PASSWORD", "fixture-password")
+	t.Setenv("VIDEO_PROVIDER", "seedance")
+	t.Setenv("ARK_API_KEY", "fixture-key")
+	t.Setenv("ARK_MODEL_ID", "")
+	t.Setenv("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3")
+	t.Setenv("PORT", "8080")
+	t.Setenv("COOKIE_SECURE", "false")
+	c, err := Load()
+	if err != nil || c.ModelID != DefaultModelID {
+		t.Fatalf("mini default: %s %v", c.ModelID, err)
+	}
+	t.Setenv("ARK_MODEL_ID", "account-specific-endpoint")
+	c, err = Load()
+	if err != nil || c.ModelID != "account-specific-endpoint" {
+		t.Fatalf("explicit model was ignored: %s %v", c.ModelID, err)
+	}
+}
+
 func TestDotEnvPreservesEnvironmentAndBOM(t *testing.T) {
 	const key = "PIC2VIDEO_TEST_DOTENV_VALUE"
 	const existing = "PIC2VIDEO_TEST_DOTENV_EXISTING"

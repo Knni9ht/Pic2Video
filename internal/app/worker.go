@@ -26,6 +26,21 @@ func (a *App) fail(j *store.Job, status, message string) {
 	a.save(j)
 }
 
+func (a *App) logDiagnostic(j *store.Job, stage string, details provider.Diagnostic) {
+	a.log.Warn("视频服务处理失败", "stage", stage, "job", j.ID, "remote_id", j.RemoteID,
+		"provider", j.Provider, "http_status", details.HTTPStatus, "upstream_code", details.UpstreamCode)
+}
+
+func (a *App) logProviderError(j *store.Job, stage string, err error) {
+	var detailed interface{ Diagnostic() provider.Diagnostic }
+	var details provider.Diagnostic
+	if errors.As(err, &detailed) {
+		details = detailed.Diagnostic()
+	}
+	// Do not log err.Error(): it may contain credentials, URLs or local paths.
+	a.logDiagnostic(j, stage, details)
+}
+
 func (a *App) process(ctx context.Context, j *store.Job) {
 	if j.Status == "queued" {
 		data, err := os.ReadFile(filepath.Join(a.Config.DataDir, j.ImagePath))
@@ -39,6 +54,7 @@ func (a *App) process(ctx context.Context, j *store.Job) {
 		}
 		id, err := a.Provider.Submit(ctx, provider.Request{Description: j.Description, Image: data, ImageMIME: j.ImageMIME, Duration: j.Duration, Ratio: j.Ratio, Resolution: j.Resolution})
 		if err != nil {
+			a.logProviderError(j, "submit", err)
 			var rejection *provider.SubmissionError
 			if errors.As(err, &rejection) && rejection.Definite {
 				a.fail(j, "failed", rejection.Message)
@@ -48,6 +64,7 @@ func (a *App) process(ctx context.Context, j *store.Job) {
 			return
 		}
 		j.RemoteID = id
+		a.log.Info("远程生成任务已创建", "stage", "submit", "job", j.ID, "remote_id", j.RemoteID, "model", a.Config.ModelID)
 		j.Status = "running"
 		if !a.save(j) {
 			return
@@ -66,6 +83,7 @@ func (a *App) process(ctx context.Context, j *store.Job) {
 				return
 			}
 			if err != nil {
+				a.logProviderError(j, "check", err)
 				failures++
 				if failures >= 3 {
 					a.fail(j, "unknown", "连续查询失败，无法确认生成结果。请先到火山引擎控制台核实，勿重复提交。")
@@ -81,6 +99,7 @@ func (a *App) process(ctx context.Context, j *store.Job) {
 						return
 					}
 				case "failed":
+					a.logDiagnostic(j, "generate", result.Details)
 					a.fail(j, "failed", result.Error)
 					return
 				}
@@ -103,8 +122,12 @@ func (a *App) process(ctx context.Context, j *store.Job) {
 		if err := a.download(ctx, j); err == nil {
 			j.Status = "succeeded"
 			j.Error = ""
-			a.save(j)
+			if a.save(j) {
+				a.log.Info("视频已保存", "stage", "download", "job", j.ID, "remote_id", j.RemoteID)
+			}
 			return
+		} else {
+			a.logProviderError(j, "download", err)
 		}
 		if ctx.Err() != nil {
 			return
@@ -114,7 +137,9 @@ func (a *App) process(ctx context.Context, j *store.Job) {
 				return
 			}
 			// Refresh an expiring video URL; never create another paid task.
-			if result, err := a.Provider.Check(ctx, j.RemoteID); err == nil && result.Status == "succeeded" {
+			if result, err := a.Provider.Check(ctx, j.RemoteID); err != nil {
+				a.logProviderError(j, "check", err)
+			} else if result.Status == "succeeded" {
 				j.RemoteURL = result.VideoURL
 				if !a.save(j) {
 					return

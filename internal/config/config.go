@@ -17,10 +17,12 @@ type Config struct {
 	PollInterval                                                      time.Duration
 }
 
+const DefaultModelID = "doubao-seedance-2-0-mini-260615"
+
 func Load() (Config, error) {
 	c := Config{
 		Password: os.Getenv("APP_PASSWORD"), Provider: env("VIDEO_PROVIDER", "mock"),
-		APIKey: os.Getenv("ARK_API_KEY"), ModelID: os.Getenv("ARK_MODEL_ID"),
+		APIKey: os.Getenv("ARK_API_KEY"), ModelID: env("ARK_MODEL_ID", DefaultModelID),
 		BaseURL: strings.TrimRight(env("ARK_BASE_URL", "https://ark.cn-beijing.volces.com/api/v3"), "/"),
 		DataDir: env("DATA_DIR", "./data"), Port: env("PORT", "8080"), Host: env("HOST", "127.0.0.1"), PollInterval: 2 * time.Second,
 	}
@@ -41,7 +43,7 @@ func Load() (Config, error) {
 	case "mock":
 	case "seedance":
 		if strings.TrimSpace(c.APIKey) == "" || strings.TrimSpace(c.ModelID) == "" {
-			return c, errors.New("Seedance 模式必须设置 ARK_API_KEY 和 ARK_MODEL_ID")
+			return c, errors.New("Seedance 模式必须设置 ARK_API_KEY 和有效的 ARK_MODEL_ID")
 		}
 		u, err := url.Parse(c.BaseURL)
 		if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
